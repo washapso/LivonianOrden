@@ -3,8 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 import asyncio
 
-# ⚠️ ВАЖНО: Замените на НОВЫЙ токен из Discord Developer Portal!
-TOKEN = "MTQ0ODA4MTEwODAwNzkxNTUzMQ.GrX5G5.gpNJyPqaVsA3YKK18kMqAsPMQrhjU7YHq5sEgg"
+import os
+TOKEN = os.environ["TOKEN"]
 
 
 # --- НАСТРОЙКИ ---
@@ -227,4 +227,5 @@ async def on_ready():
 
 # ============================================
 bot.run(TOKEN)
+
 
