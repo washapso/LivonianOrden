@@ -4,7 +4,7 @@ from discord.ext import commands
 import asyncio
 
 # ⚠️ ВАЖНО: Замените на НОВЫЙ токен из Discord Developer Portal!
-TOKEN = "MTQ0ODA4MTEwODAwNzkxNTUzMQ.GiXXj7.1_c1205xxiARCi2WSUA1y-n56Krkw1OGjSlz-U"
+TOKEN = "MTQ0ODA4MTEwODAwNzkxNTUzMQ.GrX5G5.gpNJyPqaVsA3YKK18kMqAsPMQrhjU7YHq5sEgg"
 
 
 # --- НАСТРОЙКИ ---
@@ -227,3 +227,4 @@ async def on_ready():
 
 # ============================================
 bot.run(TOKEN)
+
