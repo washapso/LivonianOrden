@@ -4,7 +4,8 @@ from discord.ext import commands
 import asyncio
 
 # ⚠️ ВАЖНО: Замените на НОВЫЙ токен из Discord Developer Portal!
-TOKEN = "MTQ0ODA4MTEwODAwNzkxNTUzMQ.GhSXtX.hMdxTeyNkKHSvhXbASXJQMlGg-HKh6xU8bNSlA"
+TOKEN = os.environ["DISCORD_TOKEN"]
+
 
 # --- НАСТРОЙКИ ---
 WHITELIST_ROLES = [
