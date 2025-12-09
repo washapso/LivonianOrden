@@ -4,7 +4,7 @@ from discord.ext import commands
 import asyncio
 
 # ⚠️ ВАЖНО: Замените на НОВЫЙ токен из Discord Developer Portal!
-TOKEN = os.environ["DISCORD_TOKEN"]
+TOKEN = "MTQ0ODA4MTEwODAwNzkxNTUzMQ.GiXXj7.1_c1205xxiARCi2WSUA1y-n56Krkw1OGjSlz-U"
 
 
 # --- НАСТРОЙКИ ---
