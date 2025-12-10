@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 import datetime
 
 # ==============================
@@ -9,10 +9,39 @@ import datetime
 
 MESSAGE_CHANNEL_ID = 1448079215219183779
 REGISTRATION_CATEGORY_ID = 1448103698755485870
+WHITELIST_ROLES = [1448012916115898560]
 
-WHITELIST_ROLES = [
-    1448012916115898560
-]
+ARCHIVE_AFTER_HOURS = 24  # через сколько часов архивировать
+
+
+# ==============================
+# VIEW: ОДОБРИТЬ / ОТКЛОНИТЬ
+# ==============================
+
+class ReviewButtons(discord.ui.View):
+    def __init__(self, channel, user):
+        super().__init__(timeout=None)
+        self.channel = channel
+        self.user = user
+
+    @discord.ui.button(label="✔ Одобрить", style=discord.ButtonStyle.green)
+    async def approve(self, interaction: discord.Interaction, _):
+
+        # Проверяем роль проверяющего
+        if not any(r.id in WHITELIST_ROLES for r in interaction.user.roles):
+            return await interaction.response.send_message("❌ У вас нет прав!", ephemeral=True)
+
+        await self.channel.send(f"✅ Организация {self.user.mention} была **одобрена**!")
+        await self.channel.delete(reason="Одобрено проверяющим")
+
+    @discord.ui.button(label="✖ Отклонить", style=discord.ButtonStyle.red)
+    async def reject(self, interaction: discord.Interaction, _):
+
+        if not any(r.id in WHITELIST_ROLES for r in interaction.user.roles):
+            return await interaction.response.send_message("❌ У вас нет прав!", ephemeral=True)
+
+        await self.channel.send(f"❌ Заявка {self.user.mention} была **отклонена** проверяющими.")
+        await self.channel.delete(reason="Отклонено проверяющим")
 
 
 # ==============================
@@ -21,30 +50,26 @@ WHITELIST_ROLES = [
 
 class RegistrationButton(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None)  # Persistent view
+        super().__init__(timeout=None)
 
     @discord.ui.button(
         label="Создать канал",
         style=discord.ButtonStyle.green,
         custom_id="registration_create_channel"
     )
-    async def create_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def create_channel(self, interaction: discord.Interaction, button):
 
         guild = interaction.guild
         user = interaction.user
 
-        # Формат названия канала
         channel_name = f"регистрация-предприятия-{user.name}".lower().replace(" ", "-")
 
-        # Проверка существующего канала
-        existing = discord.utils.get(guild.channels, name=channel_name)
-        if existing:
+        if discord.utils.get(guild.channels, name=channel_name):
             return await interaction.response.send_message(
-                "❌ У вас уже есть канал регистрации!",
+                "❌ У вас уже есть канал регистрации.",
                 ephemeral=True
             )
 
-        # Создаем права
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
 
@@ -57,62 +82,50 @@ class RegistrationButton(discord.ui.View):
             guild.me: discord.PermissionOverwrite(
                 view_channel=True,
                 send_messages=True,
-                manage_channels=True,
-                read_message_history=True
+                manage_channels=True
             )
         }
 
-        # Роли проверяющих
-        for role_id in WHITELIST_ROLES:
-            role = guild.get_role(role_id)
+        for rid in WHITELIST_ROLES:
+            role = guild.get_role(rid)
             if role:
                 overwrites[role] = discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True
+                    view_channel=True, send_messages=True
                 )
 
-        # Категория
         category = guild.get_channel(REGISTRATION_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
             category = None
 
-        # Создаем канал
         channel = await guild.create_text_channel(
             name=channel_name,
             category=category,
-            overwrites=overwrites,
-            reason=f"Регистрация предприятия: {user}"
+            overwrites=overwrites
         )
 
-        # -----------------------
-        # 1️⃣ EMBED сообщение
-        # -----------------------
-
+        # --- EMBED --- #
         embed = discord.Embed(
             title="📄 Регистрация предприятия",
             description=(
-                "Опишите подробно, чем занимается ваша организация.\n"
-                "После этого проверяющие изучат заявку и вынесут решение."
+                "Опишите, чем будет заниматься ваша организация.\n"
+                "Проверяющие изучат вашу заявку."
             ),
             color=0x2ecc71
         )
-
         await channel.send(embed=embed)
 
-        # -----------------------
-        # 2️⃣ УПОМЯНУТЬ всех
-        # -----------------------
+        # --- Ping --- #
+        wl_mentions = " ".join(
+            guild.get_role(r).mention for r in WHITELIST_ROLES if guild.get_role(r)
+        )
+        await channel.send(f"{user.mention} {wl_mentions}")
 
-        whitelist_mentions = " ".join(
-            role.mention
-            for role in (guild.get_role(r) for r in WHITELIST_ROLES)
-            if role
+        # --- Добавляем кнопки для проверки --- #
+        await channel.send(
+            "**Проверяющие:** используйте кнопки ниже для вынесения решения:",
+            view=ReviewButtons(channel, user)
         )
 
-        await channel.send(f"{user.mention} {whitelist_mentions}")
-
-        # Ответ пользователю
         await interaction.response.send_message(
             f"✅ Канал создан: {channel.mention}",
             ephemeral=True
@@ -120,34 +133,27 @@ class RegistrationButton(discord.ui.View):
 
 
 # ==============================
-# View — ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ
+# VIEW: ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ
 # ==============================
 
 class ConfirmDeleteReg(discord.ui.View):
-    def __init__(self, author: discord.Member):
-        super().__init__(timeout=15)
+    def __init__(self, author):
+        super().__init__(timeout=10)
         self.author = author
         self.confirmed = False
 
     @discord.ui.button(label="Удалить", style=discord.ButtonStyle.red)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def confirm(self, interaction, _):
         if interaction.user != self.author:
-            return await interaction.response.send_message(
-                "❌ Это не ваш канал!",
-                ephemeral=True
-            )
+            return await interaction.response.send_message("❌ Не ваш канал.", ephemeral=True)
         self.confirmed = True
         self.stop()
         await interaction.response.defer()
 
     @discord.ui.button(label="Отмена", style=discord.ButtonStyle.grey)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def cancel(self, interaction, _):
         if interaction.user != self.author:
-            return await interaction.response.send_message(
-                "❌ Это не ваш канал!",
-                ephemeral=True
-            )
-        self.confirmed = False
+            return
         self.stop()
         await interaction.response.defer()
 
@@ -156,71 +162,51 @@ class ConfirmDeleteReg(discord.ui.View):
 # SLASH: /setup_registration
 # ==============================
 
-@app_commands.command(
-    name="setup_registration",
-    description="Отправить сообщение с кнопкой регистрации предприятий."
-)
+@app_commands.command(name="setup_registration", description="Создать меню регистрации предприятий.")
 @app_commands.checks.has_permissions(administrator=True)
-async def setup_registration(interaction: discord.Interaction):
+async def setup_registration(interaction):
 
-    guild = interaction.guild
-    channel = guild.get_channel(MESSAGE_CHANNEL_ID)
-
+    channel = interaction.guild.get_channel(MESSAGE_CHANNEL_ID)
     if not channel:
-        return await interaction.response.send_message(
-            "❌ Канал для сообщений регистрации НЕ найден.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("❌ Канал не найден!", ephemeral=True)
 
     embed = discord.Embed(
         title="🏢 Регистрация предприятий",
-        description="Нажмите кнопку ниже, чтобы открыть приватный канал для регистрации.",
+        description="Нажмите кнопку, чтобы подать заявку.",
         color=0x3498db
     )
 
     await channel.send(embed=embed, view=RegistrationButton())
-
-    await interaction.response.send_message(
-        "✅ Сообщение с кнопкой отправлено!",
-        ephemeral=True
-    )
+    await interaction.response.send_message("✅ Отправлено.", ephemeral=True)
 
 
 # ==============================
 # SLASH: /delreg
 # ==============================
 
-@app_commands.command(
-    name="delreg",
-    description="Удалить ваш регистрационный канал."
-)
-async def delreg(interaction: discord.Interaction):
+@app_commands.command(name="delreg", description="Удалить свой регистрационный канал.")
+async def delreg(interaction):
 
     channel = interaction.channel
     user = interaction.user
 
-    if not isinstance(channel, discord.TextChannel) or not channel.name.startswith("регистрация-предприятия-"):
+    if not channel.name.startswith("регистрация-предприятия-"):
         return await interaction.response.send_message(
-            "❌ Это не регистрационный канал!",
-            ephemeral=True
+            "❌ Это не регистрационный канал.", ephemeral=True
         )
 
-    # Проверка владельца канала
-    username = user.name.lower().replace(" ", "-")
-    if username not in channel.name:
+    if user.name.lower().replace(" ", "-") not in channel.name:
         return await interaction.response.send_message(
-            "❌ Только создатель может удалить этот канал!",
-            ephemeral=True
+            "❌ Вы не владелец этого канала.", ephemeral=True
         )
 
     embed = discord.Embed(
-        title="⚠ Подтверждение удаления",
-        description="Вы уверены, что хотите удалить этот канал?",
+        title="⚠ Подтверждение",
+        description="Удалить канал?",
         color=0xff4444
     )
 
     view = ConfirmDeleteReg(user)
-
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     await view.wait()
@@ -228,23 +214,59 @@ async def delreg(interaction: discord.Interaction):
     if not view.confirmed:
         return
 
-    # уведомление о таймере
-    await interaction.followup.send(
-        "🗑 Канал будет удалён через 5 секунд...",
-        ephemeral=True
-    )
+    await interaction.followup.send("🗑 Удаляю через 5 секунд...", ephemeral=True)
 
     delete_at = datetime.datetime.utcnow() + datetime.timedelta(seconds=5)
     await discord.utils.sleep_until(delete_at)
 
-    await channel.delete(reason=f"Удалён пользователем {user}")
+    await channel.delete(reason=f"Удалено пользователем {user}")
 
 
 # ==============================
-# ФУНКЦИЯ ДЛЯ bot.py
+# АВТО-АРХИВАЦИЯ КАНАЛОВ
+# ==============================
+
+async def archive_channel(channel: discord.TextChannel):
+
+    archived_name = f"архив-{channel.name}"
+    await channel.edit(name=archived_name)
+
+    # Закрываем пользователю канал
+    for overwrite_target, perms in channel.overwrites.items():
+        if isinstance(overwrite_target, discord.Member):
+            await channel.set_permissions(overwrite_target, view_channel=False)
+
+    await channel.send("📦 Канал был автоматически архивирован из-за неактивности.")
+
+
+@tasks.loop(hours=1)
+async def check_archives(bot):
+
+    now = datetime.datetime.utcnow()
+
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+
+            if not channel.name.startswith("регистрация-предприятия-"):
+                continue
+
+            last_msg = channel.last_message
+            if not last_msg:
+                continue
+
+            if (now - last_msg.created_at).total_seconds() >= ARCHIVE_AFTER_HOURS * 3600:
+                await archive_channel(channel)
+
+
+# ==============================
+# РЕГИСТРАЦИЯ В bot.py
 # ==============================
 
 async def setup_registration_commands(bot: commands.Bot):
-    bot.add_view(RegistrationButton())  # чтобы кнопка работала после рестарта
+    bot.add_view(RegistrationButton())
+    bot.add_view(ReviewButtons(None, None))  # persistent buttons
     bot.tree.add_command(setup_registration)
     bot.tree.add_command(delreg)
+
+    # Автоархивация запускается при старте
+    check_archives.start(bot)
