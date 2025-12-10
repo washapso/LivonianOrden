@@ -264,7 +264,6 @@ async def check_archives(bot):
 
 async def setup_registration_commands(bot: commands.Bot):
     bot.add_view(RegistrationButton())
-    bot.add_view(ReviewButtons(None, None))  # persistent buttons
     bot.tree.add_command(setup_registration)
     bot.tree.add_command(delreg)
 
